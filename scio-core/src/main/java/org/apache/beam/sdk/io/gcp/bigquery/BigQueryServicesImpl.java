@@ -66,6 +66,10 @@ import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// -------------------------------------------------------------------------------------------------
+// Add table description patch (BEAM-1301)
+// -------------------------------------------------------------------------------------------------
+
 /**
  * An implementation of {@link BigQueryServices} that actually communicates with the cloud BigQuery
  * service.
@@ -220,11 +224,11 @@ class BigQueryServicesImpl implements BigQueryServices {
             return; // SUCCEEDED
           }
           // ignore and retry
-          LOG.info("Ignore the error and retry inserting the job.", e);
+          LOG.warn("Ignore the error and retry inserting the job.", e);
           lastException = e;
         } catch (IOException e) {
           // ignore and retry
-          LOG.info("Ignore the error and retry inserting the job.", e);
+          LOG.warn("Ignore the error and retry inserting the job.", e);
           lastException = e;
         }
       } while (nextBackOff(sleeper, backoff));
@@ -261,7 +265,7 @@ class BigQueryServicesImpl implements BigQueryServices {
           // The job is not DONE, wait longer and retry.
         } catch (IOException e) {
           // ignore and retry
-          LOG.info("Ignore the error and retry polling job status.", e);
+          LOG.warn("Ignore the error and retry polling job status.", e);
         }
       } while (nextBackOff(sleeper, backoff));
       LOG.warn("Unable to poll job status: {}, aborting after reached max .", jobRef.getJobId());
@@ -316,12 +320,12 @@ class BigQueryServicesImpl implements BigQueryServices {
             LOG.info("No BigQuery job with job id {} found.", jobId);
             return null;
           }
-          LOG.info(
+          LOG.warn(
               "Ignoring the error encountered while trying to query the BigQuery job {}",
               jobId, e);
           lastException = e;
         } catch (IOException e) {
-          LOG.info(
+          LOG.warn(
               "Ignoring the error encountered while trying to query the BigQuery job {}",
               jobId, e);
           lastException = e;
@@ -618,10 +622,10 @@ class BigQueryServicesImpl implements BigQueryServices {
             return; // SUCCEEDED
           }
           // ignore and retry
-          LOG.info("Ignore the error and retry creating the dataset.", e);
+          LOG.warn("Ignore the error and retry creating the dataset.", e);
           lastException = e;
         } catch (IOException e) {
-          LOG.info("Ignore the error and retry creating the dataset.", e);
+          LOG.warn("Ignore the error and retry creating the dataset.", e);
           lastException = e;
         }
       } while (nextBackOff(sleeper, backoff));
@@ -796,6 +800,29 @@ class BigQueryServicesImpl implements BigQueryServices {
       return insertAll(
           ref, rowList, insertIdList, INSERT_BACKOFF_FACTORY.backoff(), Sleeper.DEFAULT);
     }
+
+
+    @Override
+    public Table patchTableDescription(String project,
+                                       String dataset,
+                                       String tableId,
+                                       String tableDescription)
+        throws IOException, InterruptedException {
+      Table table = new Table();
+      table.setDescription(tableDescription);
+
+      BackOff backoff =
+          FluentBackoff.DEFAULT
+              .withMaxRetries(MAX_RPC_RETRIES).withInitialBackoff(INITIAL_RPC_BACKOFF).backoff();
+      return executeWithRetries(
+          client.tables().patch(project, dataset, tableId, table),
+          String.format(
+              "Unable to patch table description: %s, aborting after %d retries.",
+              tableId, MAX_RPC_RETRIES),
+          Sleeper.DEFAULT,
+          backoff,
+          ALWAYS_RETRY);
+    }
   }
 
   private static class BigQueryJsonReaderImpl implements BigQueryJsonReader {
@@ -887,11 +914,11 @@ class BigQueryServicesImpl implements BigQueryServices {
       try {
         return request.execute();
       } catch (IOException e) {
+        LOG.warn("Ignore the error and retry the request.", e);
         lastException = e;
         if (!shouldRetry.apply(e)) {
           break;
         }
-        LOG.info("Ignore the error and retry the request.", e);
       }
     } while (nextBackOff(sleeper, backoff));
     throw new IOException(
